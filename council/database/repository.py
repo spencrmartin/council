@@ -60,8 +60,8 @@ class AgentRepository:
         return self.get(agent_id)
 
     def delete(self, agent_id: str) -> bool:
-        # Unlink from seat first
-        self.db.execute("UPDATE seats SET agent_id = NULL WHERE agent_id = ?", (agent_id,))
+        # Unlink from seat and remove seat from region (no empty seats in chambers)
+        self.db.execute("UPDATE seats SET agent_id = NULL, region_id = NULL WHERE agent_id = ?", (agent_id,))
         cursor = self.db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
         return cursor.rowcount > 0
 
@@ -80,10 +80,12 @@ class AgentRepository:
         return self.get(agent_id)
 
     def unseat(self, agent_id: str) -> Optional[Agent]:
-        """Remove an agent from their seat."""
+        """Remove an agent from their seat. Also removes the seat from any region
+        since chambers cannot contain empty seats."""
         agent = self.get(agent_id)
         if agent and agent.seat_id:
-            self.db.execute("UPDATE seats SET agent_id = NULL WHERE id = ?", (agent.seat_id,))
+            # Remove seat from its region (no empty seats in chambers)
+            self.db.execute("UPDATE seats SET agent_id = NULL, region_id = NULL WHERE id = ?", (agent.seat_id,))
         self.db.execute("UPDATE agents SET seat_id = NULL WHERE id = ?", (agent_id,))
         return self.get(agent_id)
 
@@ -120,9 +122,15 @@ class SeatRepository:
         return self.get(seat_id)
 
     def assign_region(self, seat_ids: List[str], region_id: Optional[str]) -> int:
-        """Assign a list of seats to a region (or None to unassign)."""
+        """Assign a list of seats to a region (or None to unassign).
+        Only occupied seats can be assigned to a region — chambers cannot have empty seats."""
         count = 0
         for sid in seat_ids:
+            if region_id is not None:
+                # Only assign if the seat has an agent
+                row = self.db.fetchone("SELECT agent_id FROM seats WHERE id = ?", (sid,))
+                if not row or not row["agent_id"]:
+                    continue  # Skip empty seats
             self.db.execute("UPDATE seats SET region_id = ? WHERE id = ?", (region_id, sid))
             count += 1
         return count

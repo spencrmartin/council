@@ -80,35 +80,24 @@ export default function Hemicycle({ width, height }) {
     const cx = width / 2
     const cy = height * 0.85
 
-    // Filter seats:
-    // - Seats in a chamber (region) only show if occupied (no empty gaps in chambers)
-    // - Seats NOT in a chamber always show (unattributed empty seats)
-    const visibleSeats = seats.filter((s) => {
-      if (s.region_id) {
-        // In a chamber — only show if an agent is seated
-        return !!s.agent_id
-      }
-      // Not in a chamber — always show
-      return true
-    })
-
-    // Group by row
+    // All seats render. Within each row:
+    //   - Chamber seats (in a region with an agent) pack to the left
+    //   - Unattributed seats (no region) fill the right
+    // The backend enforces that chambers never have empty seats.
     const rows = {}
-    visibleSeats.forEach((s) => {
+    seats.forEach((s) => {
       if (!rows[s.row]) rows[s.row] = []
       rows[s.row].push(s)
     })
     const rowKeys = Object.keys(rows).map(Number).sort((a, b) => a - b)
 
-    // Compute positions: concentric arcs from π (left) to 0 (right)
-    // Within each row: chamber seats first (packed left), then unattributed seats (right)
     const baseRadius = Math.min(width, height) * 0.22
     const rowGap = Math.min(width, height) * 0.08
 
     const positioned = []
     rowKeys.forEach((rowIdx, ri) => {
       const rowSeats = rows[rowIdx]
-      // Chamber seats (in a region, occupied) first, then unattributed
+      // Chamber seats first (packed left), then unattributed
       const chamberSeats = rowSeats.filter((s) => s.region_id).sort((a, b) => a.position - b.position)
       const freeSeats = rowSeats.filter((s) => !s.region_id).sort((a, b) => a.position - b.position)
       const sorted = [...chamberSeats, ...freeSeats]
@@ -326,10 +315,8 @@ export default function Hemicycle({ width, height }) {
     // the default 10 per cohort.
     //
     if (communityMembers.length > 0) {
-      const outerRow = rowKeys.length > 0 ? Math.max(...rowKeys) : 0
-      const outerRadius = rowKeys.length > 0
-        ? baseRadius + (rowKeys.indexOf(outerRow)) * rowGap
-        : baseRadius
+      const outerRow = Math.max(...rowKeys)
+      const outerRadius = baseRadius + (rowKeys.indexOf(outerRow)) * rowGap
 
       // ── Bucket members by cohort ──
       const cohortOrder = ['builders', 'operators', 'advocates', 'pragmatists', 'creatives', 'skeptics']

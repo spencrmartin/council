@@ -103,8 +103,15 @@ END;
 """
 
 
+MIGRATION_V3_CLEAN_CHAMBERS = """
+-- Remove empty seats from regions (chambers cannot have empty seats)
+UPDATE seats SET region_id = NULL WHERE region_id IS NOT NULL AND agent_id IS NULL;
+"""
+
+
 def get_migrations():
     """Return ordered list of (version, sql) migrations."""
     return [
         (2, MIGRATION_V2_COMMUNITY),
+        (3, MIGRATION_V3_CLEAN_CHAMBERS),
     ]

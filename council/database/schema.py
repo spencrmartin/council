@@ -2,7 +2,7 @@
 Database schema for Council — Agent Governance Visualization
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 -- Schema version tracking
