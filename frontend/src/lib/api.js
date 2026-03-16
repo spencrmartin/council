@@ -60,5 +60,35 @@ export const createConstitution = (data) => request('/constitutions', { method: 
 export const updateConstitution = (data) => request('/constitution', { method: 'PUT', body: JSON.stringify(data) })
 export const activateConstitution = (id) => request(`/constitutions/${id}/activate`, { method: 'POST' })
 
+// ── Community Members ────────────────────────────────────────────────────────
+export const listCommunityMembers = (params = {}) => {
+  const qs = new URLSearchParams()
+  if (params.cohort) qs.set('cohort', params.cohort)
+  if (params.active_only !== undefined) qs.set('active_only', params.active_only)
+  const q = qs.toString()
+  return request(`/community/members${q ? '?' + q : ''}`)
+}
+export const getCommunityMember = (id) => request(`/community/members/${id}`)
+export const createCommunityMember = (data) => request('/community/members', { method: 'POST', body: JSON.stringify(data) })
+export const updateCommunityMember = (id, data) => request(`/community/members/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteCommunityMember = (id) => request(`/community/members/${id}`, { method: 'DELETE' })
+export const getCommunityStats = () => request('/community/stats')
+export const resetCommunityDefaults = () => request('/community/reset', { method: 'POST' })
+
+// ── Focus Groups ────────────────────────────────────────────────────────────
+export const listFocusGroups = () => request('/community/focus-groups')
+export const getFocusGroup = (id) => request(`/community/focus-groups/${id}`)
+export const createFocusGroup = (data) => request('/community/focus-groups', { method: 'POST', body: JSON.stringify(data) })
+
+// ── Community Polls ─────────────────────────────────────────────────────────
+export const listCommunityPolls = () => request('/community/polls')
+export const createCommunityPoll = (data) => request('/community/polls', { method: 'POST', body: JSON.stringify(data) })
+
+// ── Town Hall ───────────────────────────────────────────────────────────────
+export const runTownHall = (data) => request('/community/town-hall', { method: 'POST', body: JSON.stringify(data) })
+
+// ── Member Consultation ─────────────────────────────────────────────────────
+export const consultMember = (id, data) => request(`/community/members/${id}/consult`, { method: 'POST', body: JSON.stringify(data) })
+
 // ── Settings ────────────────────────────────────────────────────────────────
 export const getSettings = () => request('/settings')

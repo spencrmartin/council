@@ -10,28 +10,155 @@ import useStore from '@/store/useStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import AgentCard from './AgentCard'
 import RegionCard from './RegionCard'
+import MemberCard from './MemberCard'
 import CreateAgentForm from './CreateAgentForm'
 import CreateRegionForm from './CreateRegionForm'
 import CreateIOPortForm from './CreateIOPortForm'
 import ConstitutionEditor from './ConstitutionEditor'
 import SettingsPanel from './SettingsPanel'
 import { CouncilIcon, InputIcon, OutputIcon } from '@/lib/icons'
-import { Armchair, Users, Hexagon, Cable, ScrollText, Settings } from 'lucide-react'
+import { Armchair, Users, Hexagon, Cable, ScrollText, Settings, UsersRound } from 'lucide-react'
 
 const TABS = [
   { key: 'seat', label: 'Seat', Icon: Armchair },
   { key: 'agents', label: 'Agents', Icon: Users },
   { key: 'regions', label: 'Regions', Icon: Hexagon },
+  { key: 'community', label: 'Community', Icon: UsersRound },
   { key: 'io', label: 'I/O', Icon: Cable },
   { key: 'constitution', label: 'Constitution', Icon: ScrollText },
 ]
 
+const COHORT_COLORS = {
+  builders: '#3b82f6',
+  operators: '#f59e0b',
+  advocates: '#ef4444',
+  pragmatists: '#10b981',
+  creatives: '#a855f7',
+  skeptics: '#6b7280',
+}
+
+const COHORT_LABELS = {
+  builders: 'Builders',
+  operators: 'Operators',
+  advocates: 'Advocates',
+  pragmatists: 'Pragmatists',
+  creatives: 'Creatives',
+  skeptics: 'Skeptics',
+}
+
 // Settings is separate — pinned at the bottom of the rail
 const SETTINGS_KEY = 'settings'
 
+// ── Community Panel (inline) ─────────────────────────────────────────────────
+
+function CommunityPanel({ members }) {
+  const [filter, setFilter] = useState(null) // cohort filter
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filtered = members.filter((m) => {
+    if (filter && m.cohort !== filter) return false
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      return (
+        m.name.toLowerCase().includes(q) ||
+        m.profession.toLowerCase().includes(q) ||
+        (m.passions || []).some((p) => p.toLowerCase().includes(q))
+      )
+    }
+    return true
+  })
+
+  // Group by cohort
+  const cohorts = ['builders', 'operators', 'advocates', 'pragmatists', 'creatives', 'skeptics']
+  const grouped = {}
+  cohorts.forEach((c) => {
+    const inCohort = filtered.filter((m) => m.cohort === c)
+    if (inCohort.length > 0) grouped[c] = inCohort
+  })
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-base font-semibold flex items-center gap-2">
+        <UsersRound className="w-4 h-4" />
+        Community ({members.length})
+      </h3>
+
+      <p className="text-xs text-muted-foreground">
+        60 diverse voices across 6 cohorts. Click a member in the outer ring to see their profile.
+      </p>
+
+      {/* Search */}
+      <input
+        type="text"
+        placeholder="Search by name, role, or passion..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="w-full text-xs px-2.5 py-1.5 rounded-md bg-secondary border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
+      />
+
+      {/* Cohort filter chips */}
+      <div className="flex flex-wrap gap-1">
+        <button
+          onClick={() => setFilter(null)}
+          className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+            !filter ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground hover:bg-muted/80'
+          }`}
+        >
+          All
+        </button>
+        {cohorts.map((c) => {
+          const count = members.filter((m) => m.cohort === c).length
+          return (
+            <button
+              key={c}
+              onClick={() => setFilter(filter === c ? null : c)}
+              className={`text-[10px] px-2 py-0.5 rounded-full transition-colors flex items-center gap-1 ${
+                filter === c
+                  ? 'text-background'
+                  : 'text-muted-foreground hover:opacity-80'
+              }`}
+              style={{
+                backgroundColor: filter === c ? COHORT_COLORS[c] : `${COHORT_COLORS[c]}20`,
+                color: filter === c ? '#fff' : COHORT_COLORS[c],
+              }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: filter === c ? '#fff' : COHORT_COLORS[c] }} />
+              {COHORT_LABELS[c]} ({count})
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Member list */}
+      <div className="space-y-3">
+        {Object.entries(grouped).map(([cohort, cohortMembers]) => (
+          <div key={cohort}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COHORT_COLORS[cohort] }} />
+              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: COHORT_COLORS[cohort] }}>
+                {COHORT_LABELS[cohort]} ({cohortMembers.length})
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {cohortMembers.map((member) => (
+                <MemberCard key={member.id} member={member} compact={!filter && !searchQuery} />
+              ))}
+            </div>
+          </div>
+        ))}
+        {Object.keys(grouped).length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No members match your search.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function SidePanel() {
   const {
-    seats, agents, regions, ioPorts,
+    seats, agents, regions, ioPorts, communityMembers,
     selectedSeatId, selectedRegionId,
     selectSeat, selectRegion,
   } = useStore()
@@ -158,6 +285,9 @@ export default function SidePanel() {
           </div>
         )
 
+      case 'community':
+        return <CommunityPanel members={communityMembers} />
+
       case 'io':
         return (
           <div className="space-y-3">
@@ -208,10 +338,11 @@ export default function SidePanel() {
     }
   }
 
-  // Wider popovers for constitution and settings
+  // Wider popovers for constitution, settings, and community
   const popoverWidth =
     openPanel === 'constitution' ? 360 :
     openPanel === SETTINGS_KEY ? 340 :
+    openPanel === 'community' ? 340 :
     288
 
   // Get the label for the popover header

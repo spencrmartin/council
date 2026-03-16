@@ -10,6 +10,7 @@ import {
   InputIcon,
   OutputIcon,
 } from '@/lib/icons'
+import { UsersRound } from 'lucide-react'
 
 export default function StatsBar() {
   const { stats } = useStore()
@@ -19,6 +20,7 @@ export default function StatsBar() {
     { label: 'Occupied', value: stats.occupied_seats || 0, Icon: AgentIcon },
     { label: 'Agents', value: stats.total_agents || 0, Icon: AgentIcon },
     { label: 'Regions', value: stats.total_regions || 0, Icon: RegionIcon },
+    { label: 'Community', value: stats.community_members || 0, Icon: UsersRound },
     { label: 'Inputs', value: stats.total_inputs || 0, Icon: InputIcon },
     { label: 'Outputs', value: stats.total_outputs || 0, Icon: OutputIcon },
   ]

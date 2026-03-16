@@ -10,6 +10,8 @@ const useStore = create((set, get) => ({
   agents: [],
   regions: [],
   ioPorts: [],
+  communityMembers: [],
+  communityStats: {},
   stats: {},
   constitution: { preamble: '', rules: '', goals: '', constraints: '', updated_at: null },
   loading: true,
@@ -18,10 +20,14 @@ const useStore = create((set, get) => ({
   selectedSeatId: null,
   selectedAgentId: null,
   selectedRegionId: null,
+  selectedMemberId: null,
+  hoveredMemberId: null,
   view: 'council', // 'council' | 'regions' | 'agents'
 
   // Seat popover — { seatId, x, y } or null
   seatPopover: null,
+  // Member popover — { memberId, x, y } or null
+  memberPopover: null,
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -29,20 +35,29 @@ const useStore = create((set, get) => ({
   selectSeat: (id) => set({ selectedSeatId: id }),
   selectAgent: (id) => set({ selectedAgentId: id }),
   selectRegion: (id) => set({ selectedRegionId: id }),
+  selectMember: (id) => set({ selectedMemberId: id }),
+  setHoveredMember: (id) => set({ hoveredMemberId: id }),
   openSeatPopover: (seatId, x, y) => set({ seatPopover: { seatId, x, y }, selectedSeatId: seatId }),
   closeSeatPopover: () => set({ seatPopover: null }),
+  openMemberPopover: (memberId, x, y) => set({ memberPopover: { memberId, x, y }, selectedMemberId: memberId }),
+  closeMemberPopover: () => set({ memberPopover: null }),
 
   // Load full council state
   loadCouncil: async () => {
     set({ loading: true, error: null })
     try {
-      const data = await api.getCouncil()
+      const [data, members] = await Promise.all([
+        api.getCouncil(),
+        api.listCommunityMembers().catch(() => []),
+      ])
       set({
         seats: data.seats,
         agents: data.agents,
         regions: data.regions,
         ioPorts: data.io_ports,
         constitution: data.constitution,
+        communityMembers: members,
+        communityStats: data.community || {},
         stats: data.stats,
         loading: false,
       })
@@ -127,6 +142,35 @@ const useStore = create((set, get) => ({
     const constitution = await api.updateConstitution(data)
     set({ constitution })
     return constitution
+  },
+
+  // ── Community member actions ──
+  loadCommunityMembers: async () => {
+    const members = await api.listCommunityMembers()
+    set({ communityMembers: members })
+    return members
+  },
+
+  createCommunityMember: async (data) => {
+    const member = await api.createCommunityMember(data)
+    set((s) => ({ communityMembers: [...s.communityMembers, member] }))
+    return member
+  },
+
+  updateCommunityMember: async (id, data) => {
+    const member = await api.updateCommunityMember(id, data)
+    set((s) => ({ communityMembers: s.communityMembers.map((m) => (m.id === id ? member : m)) }))
+    return member
+  },
+
+  deleteCommunityMember: async (id) => {
+    await api.deleteCommunityMember(id)
+    set((s) => ({ communityMembers: s.communityMembers.filter((m) => m.id !== id) }))
+  },
+
+  resetCommunityDefaults: async () => {
+    await api.resetCommunityDefaults()
+    await get().loadCommunityMembers()
   },
 }))
 

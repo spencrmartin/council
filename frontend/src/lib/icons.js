@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   Network,
   ScrollText,
+  UsersRound,
 } from 'lucide-react'
 
 // Agent icon choices (used in CreateAgentForm picker)
@@ -71,3 +72,4 @@ export {
 }
 
 export { ScrollText as ConstitutionIcon } from 'lucide-react'
+export { UsersRound as CommunityIcon } from 'lucide-react'

@@ -3,6 +3,7 @@ import useStore from '@/store/useStore'
 import Hemicycle from '@/components/Hemicycle'
 import SidePanel from '@/components/SidePanel'
 import SeatPopover from '@/components/SeatPopover'
+import MemberPopover from '@/components/MemberPopover'
 import StatsBar from '@/components/StatsBar'
 import ConstitutionBadge from '@/components/ConstitutionBadge'
 import Onboarding from '@/components/Onboarding'
@@ -13,7 +14,7 @@ const RAIL_WIDTH = 48
 const RAIL_PADDING = 12
 
 function App() {
-  const { loading, error, loadCouncil, seatPopover } = useStore()
+  const { loading, error, loadCouncil, seatPopover, memberPopover } = useStore()
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight })
   const [showOnboarding, setShowOnboarding] = useState(() => {
     return !localStorage.getItem('council_onboarding_complete')
@@ -95,6 +96,11 @@ function App() {
         {/* Seat popover — positioned at click coordinates */}
         <AnimatePresence>
           {seatPopover && <SeatPopover />}
+        </AnimatePresence>
+
+        {/* Member popover — positioned at click coordinates */}
+        <AnimatePresence>
+          {memberPopover && <MemberPopover />}
         </AnimatePresence>
       </div>
     </div>

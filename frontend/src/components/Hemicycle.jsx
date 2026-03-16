@@ -10,7 +10,28 @@ import * as d3 from 'd3'
 import useStore from '@/store/useStore'
 
 const SEAT_RADIUS = 14
+const MEMBER_RADIUS = 5
+const MEMBER_GAP = 16  // gap between outer seat row and community ring
 const TOOLTIP_OFFSET = 12
+
+// Cohort colours — distinct, muted palette
+const COHORT_COLORS = {
+  builders: '#3b82f6',    // blue
+  operators: '#f59e0b',   // amber
+  advocates: '#ef4444',   // red
+  pragmatists: '#10b981', // emerald
+  creatives: '#a855f7',   // purple
+  skeptics: '#6b7280',    // gray
+}
+
+const COHORT_LABELS = {
+  builders: 'Builders',
+  operators: 'Operators',
+  advocates: 'Advocates',
+  pragmatists: 'Pragmatists',
+  creatives: 'Creatives',
+  skeptics: 'Skeptics',
+}
 
 // Minimal SVG paths for agent icons (rendered inside D3 — can't use React components)
 // These are simplified 16x16 viewBox paths from Lucide
@@ -39,7 +60,12 @@ const ROLE_LABELS = {
 export default function Hemicycle({ width, height }) {
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
-  const { seats, agents, regions, selectedSeatId, selectSeat, openSeatPopover, closeSeatPopover, seatPopover } = useStore()
+  const {
+    seats, agents, regions, communityMembers,
+    selectedSeatId, selectSeat, openSeatPopover, closeSeatPopover, seatPopover,
+    selectedMemberId, selectMember, openMemberPopover, closeMemberPopover, memberPopover,
+    hoveredMemberId, setHoveredMember,
+  } = useStore()
 
   // Build lookup maps
   const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]))
@@ -249,8 +275,8 @@ export default function Hemicycle({ width, height }) {
         tooltip.style('opacity', 0)
       })
 
-    // Click background to deselect and close popover
-    svg.on('click', () => { selectSeat(null); closeSeatPopover() })
+    // Click background to deselect and close popovers
+    svg.on('click', () => { selectSeat(null); closeSeatPopover(); closeMemberPopover() })
 
     // Podium / speaker area
     svg.append('rect')
@@ -273,7 +299,131 @@ export default function Hemicycle({ width, height }) {
       .attr('opacity', 0.5)
       .text('PODIUM')
 
-  }, [seats, agents, regions, selectedSeatId, seatPopover, width, height])
+    // ── Community Members — outer ring ──────────────────────────────────────
+    if (communityMembers.length > 0) {
+      const outerRow = Math.max(...rowKeys)
+      const outerRadius = baseRadius + (rowKeys.indexOf(outerRow)) * rowGap
+      const communityRadius = outerRadius + SEAT_RADIUS + MEMBER_GAP + 30
+
+      // Sort members by cohort for visual grouping
+      const cohortOrder = ['builders', 'operators', 'advocates', 'pragmatists', 'creatives', 'skeptics']
+      const sorted = [...communityMembers].sort((a, b) => {
+        const ai = cohortOrder.indexOf(a.cohort)
+        const bi = cohortOrder.indexOf(b.cohort)
+        return ai - bi
+      })
+
+      const n = sorted.length
+      const memberPositions = sorted.map((member, i) => {
+        const angle = Math.PI * (i + 0.5) / n
+        const x = cx + communityRadius * Math.cos(Math.PI - angle)
+        const y = cy - communityRadius * Math.sin(angle)
+        return { ...member, cx: x, cy: y, angle }
+      })
+
+      // Subtle arc guide for community ring
+      const communityArc = d3.arc()
+        .innerRadius(communityRadius - 3)
+        .outerRadius(communityRadius + 3)
+        .startAngle(-Math.PI / 2)
+        .endAngle(Math.PI / 2)
+      svg.append('path')
+        .attr('d', communityArc)
+        .attr('transform', `translate(${cx}, ${cy})`)
+        .attr('fill', 'hsl(217, 32%, 17%)')
+        .attr('opacity', 0.15)
+
+      // Cohort section labels along the outer edge
+      const cohortGroups = {}
+      memberPositions.forEach((m) => {
+        if (!cohortGroups[m.cohort]) cohortGroups[m.cohort] = []
+        cohortGroups[m.cohort].push(m)
+      })
+
+      Object.entries(cohortGroups).forEach(([cohort, members]) => {
+        const angles = members.map((m) => m.angle)
+        const midAngle = (Math.min(...angles) + Math.max(...angles)) / 2
+        const labelR = communityRadius + 18
+        const lx = cx + labelR * Math.cos(Math.PI - midAngle)
+        const ly = cy - labelR * Math.sin(midAngle)
+
+        svg.append('text')
+          .attr('x', lx)
+          .attr('y', ly)
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'middle')
+          .attr('fill', COHORT_COLORS[cohort] || '#888')
+          .attr('font-size', 8)
+          .attr('font-weight', 600)
+          .attr('opacity', 0.6)
+          .attr('letter-spacing', '0.05em')
+          .text((COHORT_LABELS[cohort] || cohort).toUpperCase())
+      })
+
+      // Member dots
+      const memberGroup = svg.append('g').attr('class', 'community-members')
+
+      const memberEls = memberGroup.selectAll('g.member')
+        .data(memberPositions, (d) => d.id)
+        .join('g')
+        .attr('class', 'member')
+        .attr('transform', (d) => `translate(${d.cx}, ${d.cy})`)
+        .style('cursor', 'pointer')
+
+      // Member circle
+      memberEls.append('circle')
+        .attr('r', MEMBER_RADIUS)
+        .attr('fill', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
+        .attr('opacity', (d) => d.id === selectedMemberId ? 1.0 : 0.7)
+        .attr('stroke', (d) => d.id === selectedMemberId ? '#fff' : 'transparent')
+        .attr('stroke-width', 1.5)
+
+      // Hover ring for selected/hovered member
+      memberEls.filter((d) => d.id === selectedMemberId || d.id === hoveredMemberId)
+        .append('circle')
+        .attr('r', MEMBER_RADIUS + 3)
+        .attr('fill', 'none')
+        .attr('stroke', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
+        .attr('stroke-width', 1.5)
+        .attr('opacity', 0.6)
+
+      // Member interactions
+      memberEls
+        .on('click', (event, d) => {
+          event.stopPropagation()
+          if (memberPopover && memberPopover.memberId === d.id) {
+            closeMemberPopover()
+          } else {
+            openMemberPopover(d.id, event.pageX, event.pageY)
+          }
+        })
+        .on('mouseenter', (event, d) => {
+          setHoveredMember(d.id)
+          const color = COHORT_COLORS[d.cohort] || '#888'
+          let html = `<div class="font-semibold">${d.name}</div>`
+          html += `<div class="text-xs mt-0.5" style="color:${color}">${COHORT_LABELS[d.cohort] || d.cohort}</div>`
+          html += `<div class="text-xs text-gray-400">${d.profession}</div>`
+          if (d.passions && d.passions.length > 0) {
+            html += `<div class="text-xs text-gray-500 mt-1">${d.passions.slice(0, 3).join(' · ')}</div>`
+          }
+          tooltip
+            .html(html)
+            .style('opacity', 1)
+            .style('left', `${event.pageX + TOOLTIP_OFFSET}px`)
+            .style('top', `${event.pageY + TOOLTIP_OFFSET}px`)
+        })
+        .on('mousemove', (event) => {
+          tooltip
+            .style('left', `${event.pageX + TOOLTIP_OFFSET}px`)
+            .style('top', `${event.pageY + TOOLTIP_OFFSET}px`)
+        })
+        .on('mouseleave', () => {
+          setHoveredMember(null)
+          tooltip.style('opacity', 0)
+        })
+    }
+
+  }, [seats, agents, regions, communityMembers, selectedSeatId, selectedMemberId, hoveredMemberId, seatPopover, memberPopover, width, height])
 
   return (
     <div className="relative w-full h-full">
