@@ -10,8 +10,8 @@ import * as d3 from 'd3'
 import useStore from '@/store/useStore'
 
 const SEAT_RADIUS = 14
-const MEMBER_RADIUS = 5
-const MEMBER_GAP = 16  // gap between outer seat row and community ring
+const COMMUNITY_SEAT_RADIUS = 12
+const COMMUNITY_GAP = 28  // visual gap between council and community rows
 const TOOLTIP_OFFSET = 12
 
 // Cohort colours — distinct, muted palette
@@ -299,41 +299,90 @@ export default function Hemicycle({ width, height }) {
       .attr('opacity', 0.5)
       .text('PODIUM')
 
-    // ── Community Members — outer ring ──────────────────────────────────────
+    // ── Community Members — outer hemicycle rows ──────────────────────────
     if (communityMembers.length > 0) {
       const outerRow = Math.max(...rowKeys)
       const outerRadius = baseRadius + (rowKeys.indexOf(outerRow)) * rowGap
-      const communityRadius = outerRadius + SEAT_RADIUS + MEMBER_GAP + 30
 
       // Sort members by cohort for visual grouping
       const cohortOrder = ['builders', 'operators', 'advocates', 'pragmatists', 'creatives', 'skeptics']
       const sorted = [...communityMembers].sort((a, b) => {
         const ai = cohortOrder.indexOf(a.cohort)
         const bi = cohortOrder.indexOf(b.cohort)
-        return ai - bi
+        if (ai !== bi) return ai - bi
+        return a.name.localeCompare(b.name)
       })
 
-      const n = sorted.length
-      const memberPositions = sorted.map((member, i) => {
-        const angle = Math.PI * (i + 0.5) / n
-        const x = cx + communityRadius * Math.cos(Math.PI - angle)
-        const y = cy - communityRadius * Math.sin(angle)
-        return { ...member, cx: x, cy: y, angle }
-      })
+      // Split into rows — distribute evenly across 2-3 rows depending on count
+      const total = sorted.length
+      let communityRows
+      if (total <= 20) {
+        communityRows = [sorted]
+      } else if (total <= 45) {
+        const mid = Math.ceil(total / 2)
+        communityRows = [sorted.slice(0, mid), sorted.slice(mid)]
+      } else {
+        const third = Math.ceil(total / 3)
+        communityRows = [
+          sorted.slice(0, third),
+          sorted.slice(third, third * 2),
+          sorted.slice(third * 2),
+        ]
+      }
 
-      // Subtle arc guide for community ring
-      const communityArc = d3.arc()
-        .innerRadius(communityRadius - 3)
-        .outerRadius(communityRadius + 3)
+      // Divider arc between council seats and community
+      const dividerRadius = outerRadius + SEAT_RADIUS + COMMUNITY_GAP / 2
+      const dividerArc = d3.arc()
+        .innerRadius(dividerRadius - 0.5)
+        .outerRadius(dividerRadius + 0.5)
         .startAngle(-Math.PI / 2)
         .endAngle(Math.PI / 2)
       svg.append('path')
-        .attr('d', communityArc)
+        .attr('d', dividerArc)
         .attr('transform', `translate(${cx}, ${cy})`)
-        .attr('fill', 'hsl(217, 32%, 17%)')
+        .attr('fill', 'hsl(215, 20%, 65%)')
         .attr('opacity', 0.15)
 
-      // Cohort section labels along the outer edge
+      // "COMMUNITY" label at the divider
+      svg.append('text')
+        .attr('x', cx)
+        .attr('y', cy - dividerRadius - 6)
+        .attr('text-anchor', 'middle')
+        .attr('fill', 'hsl(215, 20%, 65%)')
+        .attr('font-size', 9)
+        .attr('font-weight', 600)
+        .attr('letter-spacing', '0.15em')
+        .attr('opacity', 0.4)
+        .text('COMMUNITY')
+
+      const communityBaseRadius = outerRadius + SEAT_RADIUS + COMMUNITY_GAP
+      const memberPositions = []
+
+      communityRows.forEach((rowMembers, ri) => {
+        const radius = communityBaseRadius + ri * rowGap
+        const n = rowMembers.length
+
+        // Background arc guide for this community row
+        const rowArc = d3.arc()
+          .innerRadius(radius - 2)
+          .outerRadius(radius + 2)
+          .startAngle(-Math.PI / 2)
+          .endAngle(Math.PI / 2)
+        svg.append('path')
+          .attr('d', rowArc)
+          .attr('transform', `translate(${cx}, ${cy})`)
+          .attr('fill', 'hsl(217, 32%, 17%)')
+          .attr('opacity', 0.2)
+
+        rowMembers.forEach((member, i) => {
+          const angle = Math.PI * (i + 0.5) / n
+          const x = cx + radius * Math.cos(Math.PI - angle)
+          const y = cy - radius * Math.sin(angle)
+          memberPositions.push({ ...member, cx: x, cy: y, angle, communityRow: ri })
+        })
+      })
+
+      // Cohort background arcs (like region arcs for council seats)
       const cohortGroups = {}
       memberPositions.forEach((m) => {
         if (!cohortGroups[m.cohort]) cohortGroups[m.cohort] = []
@@ -341,26 +390,51 @@ export default function Hemicycle({ width, height }) {
       })
 
       Object.entries(cohortGroups).forEach(([cohort, members]) => {
+        const color = COHORT_COLORS[cohort] || '#6b7280'
         const angles = members.map((m) => m.angle)
-        const midAngle = (Math.min(...angles) + Math.max(...angles)) / 2
-        const labelR = communityRadius + 18
+        const minAngle = Math.min(...angles) - 0.04
+        const maxAngle = Math.max(...angles) + 0.04
+
+        const cRows = [...new Set(members.map((m) => m.communityRow))]
+        const minCR = Math.min(...cRows)
+        const maxCR = Math.max(...cRows)
+        const innerR = communityBaseRadius + minCR * rowGap - COMMUNITY_SEAT_RADIUS - 4
+        const outerR = communityBaseRadius + maxCR * rowGap + COMMUNITY_SEAT_RADIUS + 4
+
+        const arc = d3.arc()
+          .innerRadius(innerR)
+          .outerRadius(outerR)
+          .startAngle(-maxAngle + Math.PI / 2)
+          .endAngle(-minAngle + Math.PI / 2)
+          .cornerRadius(6)
+
+        svg.append('path')
+          .attr('d', arc)
+          .attr('transform', `translate(${cx}, ${cy})`)
+          .attr('fill', color)
+          .attr('opacity', 0.08)
+          .attr('stroke', color)
+          .attr('stroke-width', 1)
+          .attr('stroke-opacity', 0.2)
+
+        // Cohort label
+        const midAngle = (minAngle + maxAngle) / 2
+        const labelR = outerR + 16
         const lx = cx + labelR * Math.cos(Math.PI - midAngle)
         const ly = cy - labelR * Math.sin(midAngle)
-
         svg.append('text')
           .attr('x', lx)
           .attr('y', ly)
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'middle')
-          .attr('fill', COHORT_COLORS[cohort] || '#888')
-          .attr('font-size', 8)
+          .attr('fill', color)
+          .attr('font-size', 10)
           .attr('font-weight', 600)
-          .attr('opacity', 0.6)
-          .attr('letter-spacing', '0.05em')
-          .text((COHORT_LABELS[cohort] || cohort).toUpperCase())
+          .attr('opacity', 0.7)
+          .text(COHORT_LABELS[cohort] || cohort)
       })
 
-      // Member dots
+      // Member nodes — full-size, matching council seat style
       const memberGroup = svg.append('g').attr('class', 'community-members')
 
       const memberEls = memberGroup.selectAll('g.member')
@@ -370,22 +444,37 @@ export default function Hemicycle({ width, height }) {
         .attr('transform', (d) => `translate(${d.cx}, ${d.cy})`)
         .style('cursor', 'pointer')
 
-      // Member circle
+      // Member circle — same style as council seats
       memberEls.append('circle')
-        .attr('r', MEMBER_RADIUS)
+        .attr('r', COMMUNITY_SEAT_RADIUS)
         .attr('fill', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
-        .attr('opacity', (d) => d.id === selectedMemberId ? 1.0 : 0.7)
+        .attr('opacity', (d) => d.id === selectedMemberId || d.id === hoveredMemberId ? 0.95 : 0.65)
         .attr('stroke', (d) => d.id === selectedMemberId ? '#fff' : 'transparent')
-        .attr('stroke-width', 1.5)
+        .attr('stroke-width', 2)
 
-      // Hover ring for selected/hovered member
+      // Initials inside the circle (first letter of first + last name)
+      memberEls.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', 8)
+        .attr('font-weight', 600)
+        .attr('fill', '#fff')
+        .attr('opacity', 0.9)
+        .attr('pointer-events', 'none')
+        .text((d) => {
+          const parts = d.name.split(' ')
+          if (parts.length >= 2) return parts[0][0] + parts[parts.length - 1][0]
+          return d.name[0]
+        })
+
+      // Hover/selected glow ring
       memberEls.filter((d) => d.id === selectedMemberId || d.id === hoveredMemberId)
         .append('circle')
-        .attr('r', MEMBER_RADIUS + 3)
+        .attr('r', COMMUNITY_SEAT_RADIUS + 4)
         .attr('fill', 'none')
         .attr('stroke', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
-        .attr('stroke-width', 1.5)
-        .attr('opacity', 0.6)
+        .attr('stroke-width', 2)
+        .attr('opacity', 0.5)
 
       // Member interactions
       memberEls
