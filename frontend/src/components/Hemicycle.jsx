@@ -11,7 +11,7 @@ import useStore from '@/store/useStore'
 
 const SEAT_RADIUS = 14
 const COMMUNITY_SEAT_RADIUS = 12
-const COMMUNITY_GAP = 28  // visual gap between council and community rows
+const COMMUNITY_GAP = 60  // visual gap between council and community rows
 const TOOLTIP_OFFSET = 12
 
 // Cohort colours — distinct, muted palette
