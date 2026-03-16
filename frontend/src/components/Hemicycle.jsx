@@ -299,39 +299,36 @@ export default function Hemicycle({ width, height }) {
       .attr('opacity', 0.5)
       .text('PODIUM')
 
-    // ── Community Members — outer hemicycle rows ──────────────────────────
+    // ── Community Members — cohort slices ──────────────────────────────────
+    // Each of the 6 cohorts gets an equal angular wedge of the hemicycle.
+    // Within each slice, members are arranged in radial rows outward.
     if (communityMembers.length > 0) {
       const outerRow = Math.max(...rowKeys)
       const outerRadius = baseRadius + (rowKeys.indexOf(outerRow)) * rowGap
+      const communityInnerR = outerRadius + SEAT_RADIUS + COMMUNITY_GAP
 
-      // Sort members by cohort for visual grouping
+      // Group by cohort, preserving order
       const cohortOrder = ['builders', 'operators', 'advocates', 'pragmatists', 'creatives', 'skeptics']
-      const sorted = [...communityMembers].sort((a, b) => {
-        const ai = cohortOrder.indexOf(a.cohort)
-        const bi = cohortOrder.indexOf(b.cohort)
-        if (ai !== bi) return ai - bi
-        return a.name.localeCompare(b.name)
+      const cohortBuckets = {}
+      cohortOrder.forEach((c) => { cohortBuckets[c] = [] })
+      communityMembers.forEach((m) => {
+        const c = m.cohort || 'builders'
+        if (!cohortBuckets[c]) cohortBuckets[c] = []
+        cohortBuckets[c].push(m)
+      })
+      // Sort members within each cohort by name
+      cohortOrder.forEach((c) => {
+        cohortBuckets[c].sort((a, b) => a.name.localeCompare(b.name))
       })
 
-      // Split into rows — distribute evenly across 2-3 rows depending on count
-      const total = sorted.length
-      let communityRows
-      if (total <= 20) {
-        communityRows = [sorted]
-      } else if (total <= 45) {
-        const mid = Math.ceil(total / 2)
-        communityRows = [sorted.slice(0, mid), sorted.slice(mid)]
-      } else {
-        const third = Math.ceil(total / 3)
-        communityRows = [
-          sorted.slice(0, third),
-          sorted.slice(third, third * 2),
-          sorted.slice(third * 2),
-        ]
-      }
+      const activeCohorts = cohortOrder.filter((c) => cohortBuckets[c].length > 0)
+      const numCohorts = activeCohorts.length
+      const sliceGap = 0.04 // radians of gap between slices
+      const totalGap = sliceGap * (numCohorts - 1)
+      const sliceWidth = (Math.PI - totalGap) / numCohorts // angular width per cohort
 
-      // Divider arc between council seats and community
-      const dividerRadius = outerRadius + SEAT_RADIUS + COMMUNITY_GAP / 2
+      // Divider arc between council and community
+      const dividerRadius = outerRadius + SEAT_RADIUS + COMMUNITY_GAP * 0.4
       const dividerArc = d3.arc()
         .innerRadius(dividerRadius - 0.5)
         .outerRadius(dividerRadius + 0.5)
@@ -341,9 +338,9 @@ export default function Hemicycle({ width, height }) {
         .attr('d', dividerArc)
         .attr('transform', `translate(${cx}, ${cy})`)
         .attr('fill', 'hsl(215, 20%, 65%)')
-        .attr('opacity', 0.15)
+        .attr('opacity', 0.12)
 
-      // "COMMUNITY" label at the divider
+      // "COMMUNITY" label
       svg.append('text')
         .attr('x', cx)
         .attr('y', cy - dividerRadius - 6)
@@ -352,76 +349,81 @@ export default function Hemicycle({ width, height }) {
         .attr('font-size', 9)
         .attr('font-weight', 600)
         .attr('letter-spacing', '0.15em')
-        .attr('opacity', 0.4)
+        .attr('opacity', 0.35)
         .text('COMMUNITY')
 
-      const communityBaseRadius = outerRadius + SEAT_RADIUS + COMMUNITY_GAP
+      // Determine how many radial rows we need per slice
+      // For 10 members in a slice, we can do 2 rows of 5, or 3 rows of 3/4/3, etc.
+      // We pick cols-per-row to keep nodes from overlapping
+      const communityRowGap = rowGap * 0.85
+
       const memberPositions = []
 
-      communityRows.forEach((rowMembers, ri) => {
-        const radius = communityBaseRadius + ri * rowGap
-        const n = rowMembers.length
-
-        // Background arc guide for this community row
-        const rowArc = d3.arc()
-          .innerRadius(radius - 2)
-          .outerRadius(radius + 2)
-          .startAngle(-Math.PI / 2)
-          .endAngle(Math.PI / 2)
-        svg.append('path')
-          .attr('d', rowArc)
-          .attr('transform', `translate(${cx}, ${cy})`)
-          .attr('fill', 'hsl(217, 32%, 17%)')
-          .attr('opacity', 0.2)
-
-        rowMembers.forEach((member, i) => {
-          const angle = Math.PI * (i + 0.5) / n
-          const x = cx + radius * Math.cos(Math.PI - angle)
-          const y = cy - radius * Math.sin(angle)
-          memberPositions.push({ ...member, cx: x, cy: y, angle, communityRow: ri })
-        })
-      })
-
-      // Cohort background arcs (like region arcs for council seats)
-      const cohortGroups = {}
-      memberPositions.forEach((m) => {
-        if (!cohortGroups[m.cohort]) cohortGroups[m.cohort] = []
-        cohortGroups[m.cohort].push(m)
-      })
-
-      Object.entries(cohortGroups).forEach(([cohort, members]) => {
+      activeCohorts.forEach((cohort, ci) => {
         const color = COHORT_COLORS[cohort] || '#6b7280'
-        const angles = members.map((m) => m.angle)
-        const minAngle = Math.min(...angles) - 0.04
-        const maxAngle = Math.max(...angles) + 0.04
+        const members = cohortBuckets[cohort]
+        const sliceStart = ci * (sliceWidth + sliceGap)  // angle from left (π side)
+        const sliceMid = sliceStart + sliceWidth / 2
 
-        const cRows = [...new Set(members.map((m) => m.communityRow))]
-        const minCR = Math.min(...cRows)
-        const maxCR = Math.max(...cRows)
-        const innerR = communityBaseRadius + minCR * rowGap - COMMUNITY_SEAT_RADIUS - 4
-        const outerR = communityBaseRadius + maxCR * rowGap + COMMUNITY_SEAT_RADIUS + 4
+        // Figure out grid: how many cols fit in this angular slice at the inner radius?
+        // We want nodes spaced ~(COMMUNITY_SEAT_RADIUS * 2.6) apart along the arc
+        const nodeSpacing = COMMUNITY_SEAT_RADIUS * 2.8
+        const colsAtInner = Math.max(1, Math.floor((communityInnerR * sliceWidth) / nodeSpacing))
+        const numRows = Math.ceil(members.length / colsAtInner)
 
-        const arc = d3.arc()
-          .innerRadius(innerR)
-          .outerRadius(outerR)
-          .startAngle(-maxAngle + Math.PI / 2)
-          .endAngle(-minAngle + Math.PI / 2)
+        // Slice background wedge
+        const wedgeInnerR = communityInnerR - COMMUNITY_SEAT_RADIUS - 4
+        const wedgeOuterR = communityInnerR + (numRows - 1) * communityRowGap + COMMUNITY_SEAT_RADIUS + 6
+        const wedgeArc = d3.arc()
+          .innerRadius(wedgeInnerR)
+          .outerRadius(wedgeOuterR)
+          .startAngle(sliceStart - Math.PI / 2)
+          .endAngle(sliceStart + sliceWidth - Math.PI / 2)
           .cornerRadius(6)
-
         svg.append('path')
-          .attr('d', arc)
+          .attr('d', wedgeArc)
           .attr('transform', `translate(${cx}, ${cy})`)
           .attr('fill', color)
-          .attr('opacity', 0.08)
+          .attr('opacity', 0.07)
           .attr('stroke', color)
           .attr('stroke-width', 1)
-          .attr('stroke-opacity', 0.2)
+          .attr('stroke-opacity', 0.15)
 
-        // Cohort label
-        const midAngle = (minAngle + maxAngle) / 2
-        const labelR = outerR + 16
-        const lx = cx + labelR * Math.cos(Math.PI - midAngle)
-        const ly = cy - labelR * Math.sin(midAngle)
+        // Place members in a grid within the slice
+        let idx = 0
+        for (let row = 0; row < numRows && idx < members.length; row++) {
+          const radius = communityInnerR + row * communityRowGap
+          // How many cols fit at this radius?
+          const colsAtR = Math.max(1, Math.floor((radius * sliceWidth) / nodeSpacing))
+          const colsThisRow = Math.min(colsAtR, members.length - idx)
+
+          for (let col = 0; col < colsThisRow && idx < members.length; col++) {
+            // Distribute columns evenly within the slice
+            const angleInSlice = colsThisRow === 1
+              ? sliceWidth / 2
+              : (sliceWidth * 0.1) + col * (sliceWidth * 0.8) / (colsThisRow - 1)
+            const angle = sliceStart + angleInSlice  // angle from 0 (right) going left
+            // Convert: our hemicycle goes from π (left) to 0 (right)
+            // angle=0 → left edge, angle=π → right edge
+            const trueAngle = Math.PI - angle
+            const x = cx + radius * Math.cos(trueAngle)
+            const y = cy - radius * Math.sin(trueAngle)
+            memberPositions.push({
+              ...members[idx],
+              cx: x,
+              cy: y,
+              angle: angle,
+              sliceIndex: ci,
+            })
+            idx++
+          }
+        }
+
+        // Cohort label — outside the wedge
+        const labelAngle = Math.PI - sliceMid
+        const labelR = wedgeOuterR + 18
+        const lx = cx + labelR * Math.cos(labelAngle)
+        const ly = cy - labelR * Math.sin(labelAngle)
         svg.append('text')
           .attr('x', lx)
           .attr('y', ly)
@@ -434,7 +436,7 @@ export default function Hemicycle({ width, height }) {
           .text(COHORT_LABELS[cohort] || cohort)
       })
 
-      // Member nodes — full-size, matching council seat style
+      // ── Render member nodes ──
       const memberGroup = svg.append('g').attr('class', 'community-members')
 
       const memberEls = memberGroup.selectAll('g.member')
@@ -444,7 +446,7 @@ export default function Hemicycle({ width, height }) {
         .attr('transform', (d) => `translate(${d.cx}, ${d.cy})`)
         .style('cursor', 'pointer')
 
-      // Member circle — same style as council seats
+      // Circle — same style as council seats
       memberEls.append('circle')
         .attr('r', COMMUNITY_SEAT_RADIUS)
         .attr('fill', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
@@ -452,7 +454,7 @@ export default function Hemicycle({ width, height }) {
         .attr('stroke', (d) => d.id === selectedMemberId ? '#fff' : 'transparent')
         .attr('stroke-width', 2)
 
-      // Initials inside the circle (first letter of first + last name)
+      // Initials
       memberEls.append('text')
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'central')
@@ -467,7 +469,7 @@ export default function Hemicycle({ width, height }) {
           return d.name[0]
         })
 
-      // Hover/selected glow ring
+      // Glow ring on hover/select
       memberEls.filter((d) => d.id === selectedMemberId || d.id === hoveredMemberId)
         .append('circle')
         .attr('r', COMMUNITY_SEAT_RADIUS + 4)
@@ -476,7 +478,7 @@ export default function Hemicycle({ width, height }) {
         .attr('stroke-width', 2)
         .attr('opacity', 0.5)
 
-      // Member interactions
+      // Interactions
       memberEls
         .on('click', (event, d) => {
           event.stopPropagation()
