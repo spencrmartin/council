@@ -95,9 +95,14 @@ export default function Hemicycle({ width, height }) {
     const positioned = []
     rowKeys.forEach((rowIdx, ri) => {
       const rowSeats = rows[rowIdx].sort((a, b) => a.position - b.position)
+      // Pack occupied seats to the left, empty seats to the right
+      const occupied = rowSeats.filter((s) => s.agent_id)
+      const empty = rowSeats.filter((s) => !s.agent_id)
+      const sorted = [...occupied, ...empty]
+
       const radius = baseRadius + ri * rowGap
-      const n = rowSeats.length
-      rowSeats.forEach((seat, i) => {
+      const n = sorted.length
+      sorted.forEach((seat, i) => {
         const angle = Math.PI * (i + 0.5) / n
         const x = cx + radius * Math.cos(Math.PI - angle)
         const y = cy - radius * Math.sin(angle)
