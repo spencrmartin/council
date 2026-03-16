@@ -25,6 +25,11 @@ from council.database.repository import (
     ConstitutionRepository,
     DiscussionRepository,
 )
+from council.database.community_repository import (
+    CommunityMemberRepository,
+    FocusGroupRepository,
+    CommunityPollRepository,
+)
 from council.models.agent import Agent, AgentRole, AgentStatus
 from council.models.seat import Seat
 from council.models.region import Region, RegionType
@@ -52,11 +57,15 @@ region_repo: Optional[RegionRepository] = None
 io_port_repo: Optional[IOPortRepository] = None
 constitution_repo: Optional[ConstitutionRepository] = None
 discussion_repo: Optional[DiscussionRepository] = None
+community_member_repo: Optional[CommunityMemberRepository] = None
+focus_group_repo: Optional[FocusGroupRepository] = None
+community_poll_repo: Optional[CommunityPollRepository] = None
 
 
 def init_services():
     """Initialize database connection and repositories"""
     global agent_repo, seat_repo, region_repo, io_port_repo, constitution_repo, discussion_repo
+    global community_member_repo, focus_group_repo, community_poll_repo
     db_path = os.path.expanduser("~/.council/council.db")
     db = Database(db_path)
     agent_repo = AgentRepository(db)
@@ -65,6 +74,9 @@ def init_services():
     io_port_repo = IOPortRepository(db)
     constitution_repo = ConstitutionRepository(db)
     discussion_repo = DiscussionRepository(db)
+    community_member_repo = CommunityMemberRepository(db)
+    focus_group_repo = FocusGroupRepository(db)
+    community_poll_repo = CommunityPollRepository(db)
 
 
 # ── Resources ────────────────────────────────────────────────────────────────
@@ -407,6 +419,139 @@ async def handle_list_tools() -> list[Tool]:
             description="List all constitution versions (audit trail), newest first.",
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
+
+        # ── Community tools ──
+        Tool(
+            name="council_list_members",
+            description="List all 60 community members. These are diverse personas across 6 cohorts (builders, operators, advocates, pragmatists, creatives, skeptics) that can be engaged through focus groups, polls, and consultations.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cohort": {"type": "string", "enum": ["builders", "operators", "advocates", "pragmatists", "creatives", "skeptics"], "description": "Filter by cohort"},
+                    "active_only": {"type": "boolean", "default": True},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="council_get_member",
+            description="Get full profile of a specific community member — their background, passions, values, and communication style.",
+            inputSchema={
+                "type": "object",
+                "properties": {"member_id": {"type": "string"}},
+                "required": ["member_id"],
+            },
+        ),
+        Tool(
+            name="council_create_member",
+            description="Create a custom community member with unique perspective and voice.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Member name"},
+                    "cohort": {"type": "string", "enum": ["builders", "operators", "advocates", "pragmatists", "creatives", "skeptics"]},
+                    "age": {"type": "integer"},
+                    "profession": {"type": "string"},
+                    "background": {"type": "string", "description": "Short bio"},
+                    "passions": {"type": "array", "items": {"type": "string"}},
+                    "core_values": {"type": "array", "items": {"type": "string"}},
+                    "communication_style": {"type": "string"},
+                    "perspective_summary": {"type": "string", "description": "2-3 sentence worldview"},
+                },
+                "required": ["name", "cohort"],
+            },
+        ),
+        Tool(
+            name="council_update_member",
+            description="Update an existing community member's profile.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "cohort": {"type": "string", "enum": ["builders", "operators", "advocates", "pragmatists", "creatives", "skeptics"]},
+                    "age": {"type": "integer"},
+                    "profession": {"type": "string"},
+                    "background": {"type": "string"},
+                    "passions": {"type": "array", "items": {"type": "string"}},
+                    "core_values": {"type": "array", "items": {"type": "string"}},
+                    "communication_style": {"type": "string"},
+                    "perspective_summary": {"type": "string"},
+                    "is_active": {"type": "boolean"},
+                },
+                "required": ["member_id"],
+            },
+        ),
+        Tool(
+            name="council_delete_member",
+            description="Delete a community member.",
+            inputSchema={
+                "type": "object",
+                "properties": {"member_id": {"type": "string"}},
+                "required": ["member_id"],
+            },
+        ),
+        Tool(
+            name="council_focus_group",
+            description="Convene a focus group of community members to discuss a topic. Members are selected by method: 'diverse' (one from each cohort), 'random', 'cohort' (all from one cohort), or 'targeted' (by passion/interest). Returns each member's perspective, sentiment, and a synthesis. Can be called mid-deliberation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "The topic for the focus group to discuss"},
+                    "method": {"type": "string", "enum": ["random", "cohort", "diverse", "targeted"], "default": "diverse", "description": "How to select members"},
+                    "size": {"type": "integer", "default": 8, "description": "Number of members (default: 8)"},
+                    "cohort_filter": {"type": "string", "description": "Cohort name (for method='cohort')"},
+                    "passion_filter": {"type": "string", "description": "Passion/interest keyword (for method='targeted')"},
+                    "discussion_id": {"type": "string", "description": "Optional council discussion ID to link to"},
+                },
+                "required": ["topic"],
+            },
+        ),
+        Tool(
+            name="council_poll",
+            description="Run a quick sentiment poll across all 60 community members (or a subset). Returns support/oppose/neutral percentages, top concerns, and top endorsements.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "The poll question"},
+                    "method": {"type": "string", "enum": ["all", "random", "cohort", "diverse", "targeted"], "default": "all"},
+                    "size": {"type": "integer", "description": "Number of members to poll (default: all)"},
+                    "cohort_filter": {"type": "string"},
+                    "passion_filter": {"type": "string"},
+                    "discussion_id": {"type": "string"},
+                },
+                "required": ["question"],
+            },
+        ),
+        Tool(
+            name="council_town_hall",
+            description="Run a town hall where community members react to a council proposal. More free-form than a focus group — members can support, oppose, question, or propose amendments. Returns reactions, overall sentiment, and key themes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "proposal": {"type": "string", "description": "The council proposal for community reaction"},
+                    "size": {"type": "integer", "default": 20, "description": "Number of members to include (default: 20)"},
+                },
+                "required": ["proposal"],
+            },
+        ),
+        Tool(
+            name="council_consult_member",
+            description="Have a deep-dive one-on-one consultation with a specific community member. The member responds in character with their unique voice and perspective.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string", "description": "ID of the member to consult"},
+                    "question": {"type": "string", "description": "The question or topic to discuss"},
+                },
+                "required": ["member_id", "question"],
+            },
+        ),
+        Tool(
+            name="council_community_stats",
+            description="Get community statistics — member counts by cohort, custom vs default members.",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
     ]
 
 
@@ -517,6 +662,7 @@ async def _dispatch_tool(name: str, args: dict):
         regions = region_repo.list_all()
         io_ports = io_port_repo.list_all()
         constitution = constitution_repo.get_active()
+        community_stats = community_member_repo.get_stats()
         agent_map = {a.seat_id: a.to_dict() for a in agents if a.seat_id}
         seat_dicts = []
         for s in seats:
@@ -529,6 +675,7 @@ async def _dispatch_tool(name: str, args: dict):
             "regions": [r.to_dict() for r in regions],
             "io_ports": [p.to_dict() for p in io_ports],
             "constitution": constitution.to_dict() if constitution else None,
+            "community": community_stats,
             "stats": {
                 "total_seats": len(seats),
                 "occupied_seats": sum(1 for s in seats if s.agent_id),
@@ -536,6 +683,7 @@ async def _dispatch_tool(name: str, args: dict):
                 "total_regions": len(regions),
                 "total_inputs": sum(1 for p in io_ports if p.direction == IODirection.INPUT),
                 "total_outputs": sum(1 for p in io_ports if p.direction == IODirection.OUTPUT),
+                "community_members": community_stats.get("active_members", 0),
             },
         }
 
@@ -859,6 +1007,210 @@ async def _dispatch_tool(name: str, args: dict):
 
     if name == "council_list_constitutions":
         return [c.to_dict() for c in constitution_repo.list_all()]
+
+    # ── Community ──
+    if name == "council_list_members":
+        cohort = args.get("cohort")
+        active_only = args.get("active_only", True)
+        if cohort:
+            return [m.to_dict() for m in community_member_repo.get_by_cohort(cohort, active_only)]
+        return [m.to_dict() for m in community_member_repo.list_all(active_only)]
+
+    if name == "council_get_member":
+        member = community_member_repo.get(args["member_id"])
+        if not member:
+            raise ValueError("Community member not found")
+        return member.to_dict()
+
+    if name == "council_create_member":
+        from council.models.community import CommunityMember, Cohort
+        member = CommunityMember(
+            name=args["name"],
+            cohort=Cohort(args["cohort"]),
+            age=args.get("age", 35),
+            profession=args.get("profession", ""),
+            background=args.get("background", ""),
+            passions=args.get("passions", []),
+            core_values=args.get("core_values", []),
+            communication_style=args.get("communication_style", ""),
+            perspective_summary=args.get("perspective_summary", ""),
+            is_custom=True,
+        )
+        created = community_member_repo.create(member)
+        return created.to_dict()
+
+    if name == "council_update_member":
+        member_id = args.pop("member_id")
+        updated = community_member_repo.update(member_id, **args)
+        if not updated:
+            raise ValueError("Community member not found")
+        return updated.to_dict()
+
+    if name == "council_delete_member":
+        if not community_member_repo.delete(args["member_id"]):
+            raise ValueError("Community member not found")
+        return {"ok": True}
+
+    if name == "council_focus_group":
+        from council.services.community import run_focus_group
+
+        topic = args["topic"]
+        method = args.get("method", "diverse")
+        size = args.get("size", 8)
+        cohort_filter = args.get("cohort_filter")
+        passion_filter = args.get("passion_filter")
+        discussion_id = args.get("discussion_id")
+
+        # Select members
+        members = community_member_repo.select_members(
+            method=method, size=size,
+            cohort_filter=cohort_filter, passion_filter=passion_filter,
+        )
+        if not members:
+            raise ValueError("No community members available for selection")
+
+        # Create focus group record
+        fg = focus_group_repo.create(
+            topic=topic,
+            member_ids=[m.id for m in members],
+            method=method, size=size,
+            discussion_id=discussion_id,
+            cohort_filter=cohort_filter, passion_filter=passion_filter,
+        )
+
+        # Run the focus group
+        focus_group_repo.update_status(fg.id, "active")
+        result = await run_focus_group(topic=topic, members=members)
+
+        if result.get("needs_delegation"):
+            focus_group_repo.update_status(fg.id, "pending")
+            return {
+                "focus_group_id": fg.id,
+                "mode": "delegation",
+                "message": "No model provider available. Use the delegate tool with the system_prompt and user_message.",
+                "members": [{"name": m.name, "cohort": m.cohort.value if hasattr(m.cohort, 'value') else m.cohort, "profession": m.profession} for m in members],
+                "system_prompt": result["system_prompt"],
+                "user_message": result["user_message"],
+            }
+
+        # Record responses
+        for resp in result.get("responses", []):
+            member = next((m for m in members if m.name == resp.get("member_name")), None)
+            if member:
+                focus_group_repo.add_response(
+                    focus_group_id=fg.id,
+                    member_id=member.id,
+                    member_name=member.name,
+                    position=resp.get("position", ""),
+                    sentiment=float(resp.get("sentiment", 0.0)),
+                    confidence=float(resp.get("confidence", 0.5)),
+                    key_concern=resp.get("key_concern", ""),
+                )
+
+        fg = focus_group_repo.update_status(fg.id, "completed", synthesis=result.get("synthesis", ""))
+        return fg.to_dict()
+
+    if name == "council_poll":
+        from council.services.community import run_poll
+
+        question = args["question"]
+        method = args.get("method", "all")
+        discussion_id = args.get("discussion_id")
+
+        if method == "all":
+            members = community_member_repo.list_all(active_only=True)
+        else:
+            size = args.get("size", 60)
+            members = community_member_repo.select_members(
+                method=method, size=size,
+                cohort_filter=args.get("cohort_filter"),
+                passion_filter=args.get("passion_filter"),
+            )
+
+        if not members:
+            raise ValueError("No community members available")
+
+        poll = community_poll_repo.create(
+            question=question,
+            member_ids=[m.id for m in members],
+            discussion_id=discussion_id,
+        )
+
+        result = await run_poll(question=question, members=members)
+
+        if result.get("needs_delegation"):
+            return {
+                "poll_id": poll.id,
+                "mode": "delegation",
+                "message": "No model provider available. Use delegation to run the poll.",
+                "system_prompt": result["system_prompt"],
+                "user_message": result["user_message"],
+            }
+
+        # Record responses
+        for resp in result.get("responses", []):
+            member = next((m for m in members if m.name == resp.get("member_name")), None)
+            if member:
+                sentiment = 0.5 if resp.get("position") == "support" else (-0.5 if resp.get("position") == "oppose" else 0.0)
+                community_poll_repo.add_response(
+                    poll_id=poll.id,
+                    member_id=member.id,
+                    member_name=member.name,
+                    position=resp.get("reasoning", resp.get("position", "")),
+                    sentiment=sentiment,
+                    key_concern=resp.get("key_concern", ""),
+                )
+
+        poll = community_poll_repo.update_results(
+            poll_id=poll.id,
+            support_pct=result.get("support_pct", 0.0),
+            oppose_pct=result.get("oppose_pct", 0.0),
+            neutral_pct=result.get("neutral_pct", 0.0),
+            top_concerns=result.get("top_concerns", []),
+            top_endorsements=result.get("top_endorsements", []),
+            synthesis=result.get("synthesis", ""),
+        )
+        return poll.to_dict()
+
+    if name == "council_town_hall":
+        from council.services.community import run_town_hall
+
+        proposal = args["proposal"]
+        size = args.get("size", 20)
+        members = community_member_repo.select_members(method="diverse", size=size)
+
+        if not members:
+            raise ValueError("No community members available")
+
+        result = await run_town_hall(proposal=proposal, members=members)
+
+        if result.get("needs_delegation"):
+            return {
+                "mode": "delegation",
+                "message": "No model provider available. Use delegation to run the town hall.",
+                "system_prompt": result["system_prompt"],
+                "user_message": result["user_message"],
+            }
+
+        return {
+            "proposal": proposal,
+            "member_count": len(members),
+            "members": [{"name": m.name, "cohort": m.cohort.value if hasattr(m.cohort, 'value') else m.cohort} for m in members],
+            **result,
+        }
+
+    if name == "council_consult_member":
+        from council.services.community import consult_member
+
+        member = community_member_repo.get(args["member_id"])
+        if not member:
+            raise ValueError("Community member not found")
+
+        result = await consult_member(member=member, question=args["question"])
+        return result
+
+    if name == "council_community_stats":
+        return community_member_repo.get_stats()
 
     raise ValueError(f"Unknown tool: {name}")
 

@@ -13,6 +13,7 @@ from pathlib import Path
 from .config import Config, write_port_file, cleanup_port_file
 from .database.connection import Database
 from .database.repository import AgentRepository, SeatRepository, RegionRepository, IOPortRepository, ConstitutionRepository, DiscussionRepository
+from .database.community_repository import CommunityMemberRepository, FocusGroupRepository, CommunityPollRepository
 from .api.routes import router, init_repos
 
 
@@ -46,6 +47,9 @@ def create_app(config: Config = None) -> FastAPI:
         io_ports=IOPortRepository(db),
         constitution=ConstitutionRepository(db),
         discussions=DiscussionRepository(db),
+        community_members=CommunityMemberRepository(db),
+        focus_groups=FocusGroupRepository(db),
+        community_polls=CommunityPollRepository(db),
     )
 
     app.include_router(router)

@@ -13,29 +13,38 @@ region_repo = None
 io_port_repo = None
 constitution_repo = None
 discussion_repo = None
+community_member_repo = None
+focus_group_repo = None
+community_poll_repo = None
 
 
-def init_repos(agents, seats, regions, io_ports, constitution, discussions):
+def init_repos(agents, seats, regions, io_ports, constitution, discussions,
+               community_members=None, focus_groups=None, community_polls=None):
     global agent_repo, seat_repo, region_repo, io_port_repo, constitution_repo, discussion_repo
+    global community_member_repo, focus_group_repo, community_poll_repo
     agent_repo = agents
     seat_repo = seats
     region_repo = regions
     io_port_repo = io_ports
     constitution_repo = constitution
     discussion_repo = discussions
+    community_member_repo = community_members
+    focus_group_repo = focus_groups
+    community_poll_repo = community_polls
 
 
 # ── Council overview ──────────────────────────────────────────────────────
 
 @router.get("/council")
 async def get_council():
-    """Full council state: all seats, agents, regions, I/O ports, and constitution."""
+    """Full council state: all seats, agents, regions, I/O ports, constitution, and community."""
     seats = [s.to_dict() for s in seat_repo.list_all()]
     agents = [a.to_dict() for a in agent_repo.list_all()]
     regions = [r.to_dict() for r in region_repo.list_all()]
     io_ports = [p.to_dict() for p in io_port_repo.list_all()]
     active_constitution = constitution_repo.get_active()
     constitution = active_constitution.to_dict() if active_constitution else None
+    community_stats = community_member_repo.get_stats() if community_member_repo else {}
 
     # Build a lookup for agent on each seat
     agent_map = {a["seat_id"]: a for a in agents if a.get("seat_id")}
@@ -48,6 +57,7 @@ async def get_council():
         "regions": regions,
         "io_ports": io_ports,
         "constitution": constitution,
+        "community": community_stats,
         "stats": {
             "total_seats": len(seats),
             "occupied_seats": sum(1 for s in seats if s.get("agent_id")),
@@ -55,6 +65,7 @@ async def get_council():
             "total_regions": len(regions),
             "total_inputs": sum(1 for p in io_ports if p["direction"] == "input"),
             "total_outputs": sum(1 for p in io_ports if p["direction"] == "output"),
+            "community_members": community_stats.get("active_members", 0),
         },
     }
 
@@ -479,6 +490,340 @@ async def add_manual_message(discussion_id: str, body: dict):
         message_type=body.get("message_type", "statement"),
     )
     return msg.to_dict()
+
+
+# ── Community Members ────────────────────────────────────────────────────────
+
+@router.get("/community/members")
+async def list_community_members(cohort: Optional[str] = None, active_only: bool = True):
+    """List all community members, optionally filtered by cohort."""
+    if cohort:
+        return [m.to_dict() for m in community_member_repo.get_by_cohort(cohort, active_only)]
+    return [m.to_dict() for m in community_member_repo.list_all(active_only)]
+
+
+@router.get("/community/members/{member_id}")
+async def get_community_member(member_id: str):
+    member = community_member_repo.get(member_id)
+    if not member:
+        raise HTTPException(404, "Community member not found")
+    return member.to_dict()
+
+
+@router.post("/community/members")
+async def create_community_member(body: dict):
+    """Create a custom community member."""
+    from ..models.community import CommunityMember, Cohort
+    member = CommunityMember(
+        name=body["name"],
+        cohort=Cohort(body.get("cohort", "builders")),
+        age=body.get("age", 35),
+        profession=body.get("profession", ""),
+        background=body.get("background", ""),
+        passions=body.get("passions", []),
+        core_values=body.get("core_values", []),
+        communication_style=body.get("communication_style", ""),
+        perspective_summary=body.get("perspective_summary", ""),
+        is_custom=True,
+    )
+    created = community_member_repo.create(member)
+    return created.to_dict()
+
+
+@router.put("/community/members/{member_id}")
+async def update_community_member(member_id: str, body: dict):
+    updated = community_member_repo.update(member_id, **body)
+    if not updated:
+        raise HTTPException(404, "Community member not found")
+    return updated.to_dict()
+
+
+@router.delete("/community/members/{member_id}")
+async def delete_community_member(member_id: str):
+    if not community_member_repo.delete(member_id):
+        raise HTTPException(404, "Community member not found")
+    return {"ok": True}
+
+
+@router.get("/community/stats")
+async def get_community_stats():
+    """Get community statistics — member counts by cohort, custom vs default."""
+    return community_member_repo.get_stats()
+
+
+@router.post("/community/reset")
+async def reset_community_defaults():
+    """Reset default community members (preserves custom members)."""
+    count = community_member_repo.reset_defaults()
+    return {"reset": True, "seeded": count}
+
+
+# ── Focus Groups ─────────────────────────────────────────────────────────────
+
+@router.get("/community/focus-groups")
+async def list_focus_groups(limit: int = 50):
+    return [fg.to_dict() for fg in focus_group_repo.list_all(limit)]
+
+
+@router.get("/community/focus-groups/{focus_group_id}")
+async def get_focus_group(focus_group_id: str):
+    fg = focus_group_repo.get(focus_group_id)
+    if not fg:
+        raise HTTPException(404, "Focus group not found")
+    return fg.to_dict()
+
+
+@router.post("/community/focus-groups")
+async def create_and_run_focus_group(body: dict):
+    """Create a focus group, select members, and run the discussion.
+
+    Body:
+        topic: str (required)
+        method: "random" | "cohort" | "diverse" | "targeted" (default: "diverse")
+        size: int (default: 8)
+        cohort_filter: str (for method="cohort")
+        passion_filter: str (for method="targeted")
+        discussion_id: str (optional, links to council discussion)
+    """
+    from ..services.community import run_focus_group
+
+    topic = body.get("topic")
+    if not topic:
+        raise HTTPException(400, "Topic is required")
+
+    method = body.get("method", "diverse")
+    size = body.get("size", 8)
+    cohort_filter = body.get("cohort_filter")
+    passion_filter = body.get("passion_filter")
+    discussion_id = body.get("discussion_id")
+
+    # Select members
+    members = community_member_repo.select_members(
+        method=method, size=size,
+        cohort_filter=cohort_filter, passion_filter=passion_filter,
+    )
+
+    if not members:
+        raise HTTPException(400, "No community members available for selection")
+
+    # Create focus group record
+    fg = focus_group_repo.create(
+        topic=topic,
+        member_ids=[m.id for m in members],
+        method=method,
+        size=size,
+        discussion_id=discussion_id,
+        cohort_filter=cohort_filter,
+        passion_filter=passion_filter,
+    )
+
+    # Run the focus group
+    focus_group_repo.update_status(fg.id, "active")
+    result = await run_focus_group(topic=topic, members=members)
+
+    if result.get("needs_delegation"):
+        fg = focus_group_repo.update_status(fg.id, "pending")
+        return {
+            "focus_group": fg.to_dict(),
+            "mode": "delegation",
+            "message": "No model provider available. Use delegation to run the focus group.",
+            "system_prompt": result["system_prompt"],
+            "user_message": result["user_message"],
+        }
+
+    # Record responses
+    for resp in result.get("responses", []):
+        # Find the member by name
+        member = next((m for m in members if m.name == resp.get("member_name")), None)
+        if member:
+            focus_group_repo.add_response(
+                focus_group_id=fg.id,
+                member_id=member.id,
+                member_name=member.name,
+                position=resp.get("position", ""),
+                sentiment=float(resp.get("sentiment", 0.0)),
+                confidence=float(resp.get("confidence", 0.5)),
+                key_concern=resp.get("key_concern", ""),
+            )
+
+    # Update with synthesis
+    fg = focus_group_repo.update_status(fg.id, "completed", synthesis=result.get("synthesis", ""))
+
+    return fg.to_dict()
+
+
+@router.delete("/community/focus-groups/{focus_group_id}")
+async def delete_focus_group(focus_group_id: str):
+    if not focus_group_repo.delete(focus_group_id):
+        raise HTTPException(404, "Focus group not found")
+    return {"ok": True}
+
+
+# ── Community Polls ──────────────────────────────────────────────────────────
+
+@router.get("/community/polls")
+async def list_community_polls(limit: int = 50):
+    return [p.to_dict() for p in community_poll_repo.list_all(limit)]
+
+
+@router.get("/community/polls/{poll_id}")
+async def get_community_poll(poll_id: str):
+    poll = community_poll_repo.get(poll_id)
+    if not poll:
+        raise HTTPException(404, "Poll not found")
+    return poll.to_dict()
+
+
+@router.post("/community/polls")
+async def create_and_run_poll(body: dict):
+    """Create a poll, select members, and run it.
+
+    Body:
+        question: str (required)
+        method: "random" | "cohort" | "diverse" | "targeted" | "all" (default: "all")
+        size: int (default: all active members)
+        cohort_filter: str (for method="cohort")
+        passion_filter: str (for method="targeted")
+        discussion_id: str (optional)
+    """
+    from ..services.community import run_poll
+
+    question = body.get("question")
+    if not question:
+        raise HTTPException(400, "Question is required")
+
+    method = body.get("method", "all")
+    discussion_id = body.get("discussion_id")
+
+    if method == "all":
+        members = community_member_repo.list_all(active_only=True)
+    else:
+        size = body.get("size", 60)
+        members = community_member_repo.select_members(
+            method=method, size=size,
+            cohort_filter=body.get("cohort_filter"),
+            passion_filter=body.get("passion_filter"),
+        )
+
+    if not members:
+        raise HTTPException(400, "No community members available")
+
+    # Create poll record
+    poll = community_poll_repo.create(
+        question=question,
+        member_ids=[m.id for m in members],
+        discussion_id=discussion_id,
+    )
+
+    # Run the poll
+    result = await run_poll(question=question, members=members)
+
+    if result.get("needs_delegation"):
+        return {
+            "poll": poll.to_dict(),
+            "mode": "delegation",
+            "message": "No model provider available. Use delegation to run the poll.",
+            "system_prompt": result["system_prompt"],
+            "user_message": result["user_message"],
+        }
+
+    # Record responses
+    for resp in result.get("responses", []):
+        member = next((m for m in members if m.name == resp.get("member_name")), None)
+        if member:
+            sentiment = 0.5 if resp.get("position") == "support" else (-0.5 if resp.get("position") == "oppose" else 0.0)
+            community_poll_repo.add_response(
+                poll_id=poll.id,
+                member_id=member.id,
+                member_name=member.name,
+                position=resp.get("reasoning", resp.get("position", "")),
+                sentiment=sentiment,
+                key_concern=resp.get("key_concern", ""),
+            )
+
+    # Update results
+    poll = community_poll_repo.update_results(
+        poll_id=poll.id,
+        support_pct=result.get("support_pct", 0.0),
+        oppose_pct=result.get("oppose_pct", 0.0),
+        neutral_pct=result.get("neutral_pct", 0.0),
+        top_concerns=result.get("top_concerns", []),
+        top_endorsements=result.get("top_endorsements", []),
+        synthesis=result.get("synthesis", ""),
+    )
+
+    return poll.to_dict()
+
+
+@router.delete("/community/polls/{poll_id}")
+async def delete_community_poll(poll_id: str):
+    if not community_poll_repo.delete(poll_id):
+        raise HTTPException(404, "Poll not found")
+    return {"ok": True}
+
+
+# ── Town Hall ────────────────────────────────────────────────────────────────
+
+@router.post("/community/town-hall")
+async def run_town_hall_endpoint(body: dict):
+    """Run a town hall where all active community members react to a proposal.
+
+    Body:
+        proposal: str (required)
+        size: int (default: 20, max members to include)
+        discussion_id: str (optional)
+    """
+    from ..services.community import run_town_hall
+
+    proposal = body.get("proposal")
+    if not proposal:
+        raise HTTPException(400, "Proposal is required")
+
+    size = body.get("size", 20)
+    members = community_member_repo.select_members(method="diverse", size=size)
+
+    if not members:
+        raise HTTPException(400, "No community members available")
+
+    result = await run_town_hall(proposal=proposal, members=members)
+
+    if result.get("needs_delegation"):
+        return {
+            "mode": "delegation",
+            "message": "No model provider available. Use delegation to run the town hall.",
+            "system_prompt": result["system_prompt"],
+            "user_message": result["user_message"],
+        }
+
+    return {
+        "proposal": proposal,
+        "member_count": len(members),
+        "members": [m.to_dict() for m in members],
+        **result,
+    }
+
+
+# ── Member Consultation ──────────────────────────────────────────────────────
+
+@router.post("/community/members/{member_id}/consult")
+async def consult_community_member(member_id: str, body: dict):
+    """Have a deep-dive consultation with a specific community member.
+
+    Body:
+        question: str (required)
+    """
+    from ..services.community import consult_member
+
+    member = community_member_repo.get(member_id)
+    if not member:
+        raise HTTPException(404, "Community member not found")
+
+    question = body.get("question")
+    if not question:
+        raise HTTPException(400, "Question is required")
+
+    result = await consult_member(member=member, question=question)
+    return result
 
 
 # ── Tool Connection (MCP injection) ──────────────────────────────────────────

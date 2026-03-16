@@ -3,6 +3,7 @@ Database connection and initialization — mirrors Brian's pattern.
 """
 import sqlite3
 import os
+import uuid
 from pathlib import Path
 from typing import Optional
 from contextlib import contextmanager
@@ -51,6 +52,7 @@ class Database:
             cursor.execute(get_schema_version_sql())
             conn.commit()
             self._seed_default_council()
+            self._seed_default_community()
             print("Database initialized successfully!")
         else:
             cursor.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
@@ -90,12 +92,68 @@ class Database:
         total = sum(rows_config)
         print(f"  ✓ Seeded {total} seats across {len(rows_config)} rows")
 
-    def _migrate(self, from_version: int, to_version: int):
-        """Placeholder for future migrations."""
+    def _seed_default_community(self):
+        """Seed the 60 default community members."""
+        import json as _json
+
         conn = self.connect()
         cursor = conn.cursor()
+
+        # Check if already seeded
+        cursor.execute("SELECT COUNT(*) as cnt FROM community_members")
+        count = cursor.fetchone()[0]
+        if count > 0:
+            print(f"  ✓ Community already has {count} members, skipping seed")
+            return
+
+        from ..data.default_members import DEFAULT_COMMUNITY_MEMBERS
+
+        for m in DEFAULT_COMMUNITY_MEMBERS:
+            member_id = str(uuid.uuid4())
+            cursor.execute(
+                """INSERT INTO community_members
+                   (id, name, cohort, age, profession, background, passions,
+                    core_values, communication_style, perspective_summary, is_custom, is_active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    member_id,
+                    m["name"],
+                    m["cohort"],
+                    m.get("age", 35),
+                    m.get("profession", ""),
+                    m.get("background", ""),
+                    _json.dumps(m.get("passions", [])),
+                    _json.dumps(m.get("core_values", [])),
+                    m.get("communication_style", ""),
+                    m.get("perspective_summary", ""),
+                    False,  # is_custom
+                    True,   # is_active
+                ),
+            )
+
+        conn.commit()
+        print(f"  ✓ Seeded {len(DEFAULT_COMMUNITY_MEMBERS)} community members across 6 cohorts")
+
+    def _migrate(self, from_version: int, to_version: int):
+        """Run migrations from from_version to to_version."""
+        from .migrations import get_migrations
+
+        conn = self.connect()
+        cursor = conn.cursor()
+
+        migrations = get_migrations()
+        for version, sql in migrations:
+            if version > from_version and version <= to_version:
+                print(f"  Running migration v{version}...")
+                cursor.executescript(sql)
+
         cursor.execute(get_schema_version_sql())
         conn.commit()
+
+        # Seed community members after migration
+        if from_version < 2 <= to_version:
+            self._seed_default_community()
+
         print(f"Migration complete: v{from_version} → v{to_version}")
 
     @contextmanager
