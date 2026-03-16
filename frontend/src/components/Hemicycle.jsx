@@ -462,34 +462,22 @@ export default function Hemicycle({ width, height }) {
         .attr('transform', (d) => `translate(${d.cx}, ${d.cy})`)
         .style('cursor', 'pointer')
 
+      // Grey dot with cohort-colored outline
       memberEls.append('circle')
         .attr('r', COMMUNITY_SEAT_RADIUS)
-        .attr('fill', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
-        .attr('opacity', (d) => d.id === selectedMemberId || d.id === hoveredMemberId ? 0.95 : 0.6)
-        .attr('stroke', (d) => d.id === selectedMemberId ? '#fff' : 'transparent')
-        .attr('stroke-width', 2)
+        .attr('fill', 'hsl(217, 32%, 17%)')
+        .attr('stroke', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-opacity', (d) => d.id === selectedMemberId || d.id === hoveredMemberId ? 1 : 0.5)
+        .attr('opacity', (d) => d.id === selectedMemberId || d.id === hoveredMemberId ? 1 : 0.7)
 
-      memberEls.append('text')
-        .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'central')
-        .attr('font-size', 8)
-        .attr('font-weight', 600)
-        .attr('fill', '#fff')
-        .attr('opacity', 0.9)
-        .attr('pointer-events', 'none')
-        .text((d) => {
-          const parts = d.name.split(' ')
-          return parts.length >= 2
-            ? parts[0][0] + parts[parts.length - 1][0]
-            : d.name[0]
-        })
-
+      // Glow ring on hover/select
       memberEls.filter((d) => d.id === selectedMemberId || d.id === hoveredMemberId)
         .append('circle')
         .attr('r', COMMUNITY_SEAT_RADIUS + 4)
         .attr('fill', 'none')
         .attr('stroke', (d) => COHORT_COLORS[d.cohort] || '#6b7280')
-        .attr('stroke-width', 2)
+        .attr('stroke-width', 1.5)
         .attr('opacity', 0.5)
 
       memberEls
